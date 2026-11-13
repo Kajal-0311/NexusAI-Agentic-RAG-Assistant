@@ -100,12 +100,31 @@ class ChromaStore:
                 else:
                     where_clause = {"document_id": {"$in": document_ids}}
 
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=min(top_k, max(1, self.collection.count())),
-                where=where_clause,
-                include=["documents", "metadatas", "distances"],
-            )
+            try:
+                results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=min(top_k, max(1, self.collection.count())),
+                    where=where_clause,
+                    include=["documents", "metadatas", "distances"],
+                )
+            except Exception as query_err:
+                # If HNSW reader segment was not loaded due to external writes, refresh collection handle
+                if "hnsw" in str(query_err).lower() or "nothing found" in str(query_err).lower():
+                    logger.info("Reloading ChromaDB collection handle after external disk update.")
+                    self.collection = self.client.get_or_create_collection(
+                        name=self.collection_name,
+                        metadata={"description": "NexusAI research documents", "hnsw:space": "cosine"},
+                    )
+                    if self.collection.count() == 0:
+                        return []
+                    results = self.collection.query(
+                        query_embeddings=[query_embedding],
+                        n_results=min(top_k, max(1, self.collection.count())),
+                        where=where_clause,
+                        include=["documents", "metadatas", "distances"],
+                    )
+                else:
+                    raise query_err
 
             formatted_results: List[Dict[str, Any]] = []
             if results and results["ids"] and len(results["ids"][0]) > 0:
@@ -115,7 +134,6 @@ class ChromaStore:
                 distances = results["distances"][0] if results["distances"] else [1.0] * len(ids)
 
                 for chunk_id, content, meta, dist in zip(ids, docs, metas, distances):
-                    # Chroma cosine distance is in [0, 2]; convert to similarity score in [0, 1]
                     similarity = max(0.0, min(1.0, 1.0 - (dist / 2.0)))
                     formatted_results.append(
                         {
@@ -130,7 +148,6 @@ class ChromaStore:
                         }
                     )
 
-            # Sort descending by similarity score
             formatted_results.sort(key=lambda x: x["score"], reverse=True)
             return formatted_results[:top_k]
 

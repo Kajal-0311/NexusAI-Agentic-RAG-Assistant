@@ -75,3 +75,22 @@ logs/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Local database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local uploaded and processed documents
+data/uploads/
+data/processed/
+
+# ChromaDB storage
+chroma_db/
+**/chroma_db/
+
+# Python environment
+.venv/
+__pycache__/
